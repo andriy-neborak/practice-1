@@ -1,0 +1,8 @@
+../Src/main.c:14:6:WriteRegister	16	static
+../Src/main.c:15:10:ReadRegister	16	static
+../Src/main.c:16:10:HAL_GetTick	8	static
+../Src/main.c:19:9:CRC8	24	static
+../Src/main.c:35:6:SendResponse	32	static
+../Src/main.c:49:6:ProcessPacket	40	static
+../Src/main.c:66:6:UART_Receive_Handler	24	static
+../Src/main.c:82:5:main	8	static
