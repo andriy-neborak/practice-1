@@ -1,0 +1,154 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * File Name          : freertos.c
+  * Description        : Code for freertos applications
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Includes ------------------------------------------------------------------*/
+#include "FreeRTOS.h"
+#include "task.h"
+#include "main.h"
+#include "cmsis_os.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "usart.h" // Обов'язково для huart1
+#include "gpio.h"  // Обов'язково для GPIO
+#include <string.h> // Для роботи з рядками
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+/* USER CODE BEGIN Variables */
+
+/* USER CODE END Variables */
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+
+/* Private function prototypes -----------------------------------------------*/
+/* USER CODE BEGIN FunctionPrototypes */
+// Тут ми прибрали зайву копію функції StartDefaultTask
+/* USER CODE END FunctionPrototypes */
+
+void StartDefaultTask(void *argument); // Прототип функції
+
+void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
+
+/**
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
+void MX_FREERTOS_Init(void) {
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+}
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN StartDefaultTask */
+
+  // Повідомлення (необов'язково, але хай буде)
+  uint8_t msg[] = "Button Check Running\r\n";
+
+  /* Infinite loop */
+  for(;;)
+  {
+    // --- 1. Логіка Кнопки (PA0) та Синього Діода (PC8) ---
+
+    // Зчитуємо стан кнопки на порті A, пін 0
+    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
+    {
+      // Якщо кнопка НАТИСНУТА (дорівнює 1) -> Вимикаємо Синій
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
+    }
+    else
+    {
+      // Якщо кнопка ВІДПУЩЕНА -> Блимаємо Синім
+      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_8);
+    }
+
+    // --- 2. Зелений діод (PC9) ---
+    // Нехай блимає завжди, як індикатор життя плати
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_9);
+
+    // --- 3. Затримка ---
+    // Ставимо меншу затримку (100 мс), щоб кнопка реагувала миттєво
+    osDelay(100);
+  }
+  /* USER CODE END StartDefaultTask */
+}
+
+/* Private application code --------------------------------------------------*/
+/* USER CODE BEGIN Application */
+
+/* USER CODE END Application */
