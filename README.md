@@ -52,7 +52,6 @@
 ## 🛠 Development Environment
 IDE:
 * [x] Visual Studio Code 1.109.1
-Python Version:
-* [x] 3.14.3
-Tkinter Version:
-* [x] 8.6 (bundled with Python)
+* [x] Python Version: 3.14.3
+* [x] Tkinter Version: 8.6 (bundled with Python)
+* [x] PySerial Version: 3.5
