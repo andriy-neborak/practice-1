@@ -64,8 +64,8 @@ all: main-build
 main-build: Four_in_a_row.elf secondary-outputs
 
 # Tool invocations
-Four_in_a_row.elf Four_in_a_row.map: $(OBJS) $(USER_OBJS) D:\ProjectSTM\Four_in_a_row\STM32F051R8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Four_in_a_row.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"D:\ProjectSTM\Four_in_a_row\STM32F051R8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Four_in_a_row.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Four_in_a_row.elf Four_in_a_row.map: $(OBJS) $(USER_OBJS) C:\Users\david\git\practice-1\STM32F051R8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Four_in_a_row.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"C:\Users\david\git\practice-1\STM32F051R8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Four_in_a_row.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -25,9 +25,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "usart.h" // Обов'язково для huart1
-#include "gpio.h"  // Обов'язково для GPIO
-#include <string.h> // Для роботи з рядками
+#include "usart.h"
+#include "gpio.h"
+#include <string.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,6 +48,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+#define ROWS 8
+#define COLS 8
+
+// Масив 8x8. Кольори: 1,2,3,4,5,6. (0 - пусто)
+uint8_t gameField[ROWS][COLS];
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
@@ -59,10 +65,48 @@ const osThreadAttr_t defaultTask_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-// Тут ми прибрали зайву копію функції StartDefaultTask
+
+// Функція ініціалізації поля (щоб не було 4 в ряд)
+void InitGameField(void) {
+    // 1. Проходимо по всіх рядках (y) та стовпцях (x)
+    for (int y = 0; y < ROWS; y++) {
+        for (int x = 0; x < COLS; x++) {
+
+            uint8_t color;
+            int isValid = 0; // Прапорець: 0 - колір поганий, 1 - хороший
+
+            // 2. Цикл: підбираємо колір, поки не знайдемо підходящий
+            while (isValid == 0) {
+                color = (rand() % 6) + 1; // Випадкове число від 1 до 6
+                isValid = 1; // Сподіваємось, що підійде
+
+                // 3. Перевірка зліва (щоб не було 4 однакові в ряд)
+                if (x >= 3) {
+                    if (gameField[y][x-1] == color &&
+                        gameField[y][x-2] == color &&
+                        gameField[y][x-3] == color) {
+                        isValid = 0;
+                    }
+                }
+
+                // 4. Перевірка зверху (щоб не було 4 однакові в стовпчик)
+                if (isValid == 1 && y >= 3) {
+                    if (gameField[y-1][x] == color &&
+                        gameField[y-2][x] == color &&
+                        gameField[y-3][x] == color) {
+                        isValid = 0;
+                    }
+                }
+            }
+            // 5. Записуємо хороший колір у клітинку
+            gameField[y][x] = color;
+        }
+    }
+}
+
 /* USER CODE END FunctionPrototypes */
 
-void StartDefaultTask(void *argument); // Прототип функції
+void StartDefaultTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -117,32 +161,38 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
 
-  // Повідомлення (необов'язково, але хай буде)
-  uint8_t msg[] = "Button Check Running\r\n";
+  // Перша генерація при старті (щоб масив не був пустим)
+  srand(0);
+  InitGameField();
 
   /* Infinite loop */
   for(;;)
   {
-    // --- 1. Логіка Кнопки (PA0) та Синього Діода (PC8) ---
-
-    // Зчитуємо стан кнопки на порті A, пін 0
+    // --- Логіка Кнопки (PA0) ---
     if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_SET)
     {
-      // Якщо кнопка НАТИСНУТА (дорівнює 1) -> Вимикаємо Синій
+      // === ЯКЩО КНОПКА НАТИСНУТА ===
+
+      // 1. Вимикаємо синій діод (індикація натискання)
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET);
+
+      // 2. ГЕНЕРУЄМО НОВЕ ПОЛЕ! (Ось це головна зміна)
+      InitGameField();
+
+      // 3. Затримка 200 мс, щоб не генерувало занадто швидко
+      osDelay(200);
     }
     else
     {
-      // Якщо кнопка ВІДПУЩЕНА -> Блимаємо Синім
+      // === ЯКЩО КНОПКА ВІДПУЩЕНА ===
+      // Блимаємо синім (режим очікування)
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_8);
     }
 
-    // --- 2. Зелений діод (PC9) ---
-    // Нехай блимає завжди, як індикатор життя плати
+    // --- Зелений діод (PC9) завжди блимає ---
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_9);
 
-    // --- 3. Затримка ---
-    // Ставимо меншу затримку (100 мс), щоб кнопка реагувала миттєво
+    // --- Затримка циклу ---
     osDelay(100);
   }
   /* USER CODE END StartDefaultTask */
