@@ -1,93 +1,286 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "usart.h"
 #include "gpio.h"
 
-/* --- ГЛОБАЛЬНІ ЗМІННІ --- */
-extern UART_HandleTypeDef huart1;
-uint8_t rx_byte;          // Тимчасовий байт для прийому
-uint8_t echo_buf[6];      // Буфер для пакету з 6 байт
-uint8_t rx_idx = 0;       // Поточний індекс у буфері
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <string.h> // Для роботи з пам'яттю
+/* USER CODE END Includes */
 
-/* Прототипи системних функцій */
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+// Структура пакету (6 байт) для зручності доступу
+typedef struct {
+    uint8_t cmd;
+    uint8_t addr_h;
+    uint8_t addr_l;
+    uint8_t data_h;
+    uint8_t data_l;
+    uint8_t crc;
+} Packet_t;
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define PACKET_SIZE 6
+#define TIMEOUT_MS  10  // Жорсткий таймаут між байтами
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+
+/* USER CODE BEGIN PV */
+/* --- ЗМІННІ ДЛЯ ПРОТОКОЛУ --- */
+uint8_t rx_byte;                // Тимчасовий байт (приймач)
+uint8_t rx_buffer[PACKET_SIZE]; // Буфер для збору пакету
+uint8_t rx_idx = 0;             // Поточний індекс
+
+volatile uint8_t packet_received_flag = 0; // Прапор: 1 = є повний пакет
+uint32_t last_byte_tick = 0;    // Час отримання останнього байта
+
+Packet_t current_packet;        // Структура для розбору даних
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
 
 /**
-  * @brief Головна функція
+  * @brief  The application entry point.
+  * @retval int
   */
 int main(void)
 {
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
   SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  __HAL_UART_FLUSH_DRREGISTER(&huart1); // Очищаємо "сміття" з порту перед грою
+  /* USER CODE BEGIN 2 */
 
-  /* СТАРТ: Вмикаємо прийом першого байта */
+  /* --- СТАРТ --- */
+  // Очищаємо сміття в регістрі
+  __HAL_UART_FLUSH_DRREGISTER(&huart1);
+
+  // Запускаємо прийом першого байта
   HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
 
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* Весь обмін відбувається в перериваннях автоматично */
-  }
-}
-
-/**
-  * @brief Колбек отримання байта
-  */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    echo_buf[rx_idx++] = rx_byte; // Записуємо отриманий байт у масив
-
-    if (rx_idx >= 6) // Якщо отримали рівно 6 байт
+    /* --- 1. ПЕРЕВІРКА: ЧИ ПРИЙШОВ ПОВНИЙ ПАКЕТ? --- */
+    if (packet_received_flag == 1)
     {
-      /* Відправляємо цей же пакет назад */
-      HAL_UART_Transmit(&huart1, echo_buf, 6, 10);
-      rx_idx = 0; // Скидаємо індекс для нового пакету
+        // Копіюємо дані в структуру для зручності
+        // (Можна працювати і напряму з rx_buffer)
+        current_packet.cmd    = rx_buffer[0];
+        current_packet.addr_h = rx_buffer[1];
+        current_packet.addr_l = rx_buffer[2];
+        current_packet.data_h = rx_buffer[3];
+        current_packet.data_l = rx_buffer[4];
+        current_packet.crc    = rx_buffer[5];
+
+        /* --- 2. РАХУЄМО CRC --- */
+        // Сума перших 5 байт
+        uint16_t sum = current_packet.cmd +
+                       current_packet.addr_h + current_packet.addr_l +
+                       current_packet.data_h + current_packet.data_l;
+
+        uint8_t calc_crc = sum & 0xFF; // Беремо молодший байт (Modulo 256)
+
+        /* --- 3. ВАЛІДАЦІЯ --- */
+        if (calc_crc == current_packet.crc)
+        {
+            // === ПАКЕТ ВАЛІДНИЙ ===
+
+            // Тут твоя логіка гри.
+            // Для прикладу: Просто підтверджуємо отримання (ACK)
+
+            // Змінюємо дані для відповіді (наприклад, Status = 0xFF OK)
+            rx_buffer[3] = 0x00;
+            rx_buffer[4] = 0xFF;
+
+            // ПЕРЕРАХОВУЄМО CRC для відповіді!
+            uint16_t resp_sum = rx_buffer[0] + rx_buffer[1] + rx_buffer[2] +
+                                rx_buffer[3] + rx_buffer[4];
+            rx_buffer[5] = resp_sum & 0xFF;
+
+            // Відправляємо відповідь (ACK)
+            HAL_UART_Transmit(&huart1, rx_buffer, PACKET_SIZE, 100);
+        }
+        else
+        {
+            // === ПОМИЛКА CRC ===
+            // Відправляємо пакет помилки (0xEE)
+            uint8_t err_packet[PACKET_SIZE] = {0xEE, 0xEE, 0xEE, 0xEE, 0xEE, 0xEE};
+            HAL_UART_Transmit(&huart1, err_packet, PACKET_SIZE, 100);
+        }
+
+        /* --- 4. ЗАВЕРШЕННЯ ОБРОБКИ --- */
+        // Скидаємо прапор, дозволяємо приймати нові пакети в ISR
+        packet_received_flag = 0;
     }
 
-    /* ВАЖЛИВО: Перезапускаємо прослуховування наступного байта */
-    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
   }
+  /* USER CODE END 3 */
 }
 
 /**
-  * @brief Обробка помилок (Overrun Error)
+  * @brief System Clock Configuration
+  * @retval None
   */
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    /* Очищаємо прапорець переповнення, який міг заблокувати UART */
-    __HAL_UART_CLEAR_OREFLAG(huart);
-    /* Перезапускаємо прийом після збою */
-    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
-  }
-}
-
-/* --- СИСТЕМНІ НАЛАШТУВАННЯ (щоб не було помилок компиляції) --- */
-
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
-  HAL_RCC_OscConfig(&RCC_OscInitStruct);
+  RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK|RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_PCLK1;
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1);
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1;
+  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK1;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
+/* USER CODE BEGIN 4 */
+/* --- ОБРОБНИКИ ПЕРЕРИВАНЬ UART --- */
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    uint32_t current_tick = HAL_GetTick();
+
+    /* А. ПЕРЕВІРКА ТАЙМАУТУ (10 мс) */
+    // Якщо прийом йде (індекс > 0), але пауза затягнулася (> 10мс)
+    if (rx_idx > 0 && (current_tick - last_byte_tick > TIMEOUT_MS))
+    {
+        rx_idx = 0; // Скидаємо "протухлий" пакет
+    }
+
+    // Оновлюємо час останнього байта
+    last_byte_tick = current_tick;
+
+    /* Б. БУФЕРИЗАЦІЯ */
+    // Пишемо в буфер ТІЛЬКИ якщо Main Loop вже обробив попередній пакет (flag == 0)
+    if (packet_received_flag == 0)
+    {
+        rx_buffer[rx_idx++] = rx_byte; // Записуємо байт
+
+        // Якщо зібрали 6 байт
+        if (rx_idx >= PACKET_SIZE)
+        {
+            packet_received_flag = 1; // Сигнал для Main Loop: "Є дані!"
+            rx_idx = 0;               // Скидаємо індекс для наступного разу
+        }
+    }
+    else
+    {
+        // Якщо flag == 1, значить Main ще думає.
+        // Ми ігноруємо вхідні байти (або можна повертати помилку),
+        // щоб не зіпсувати буфер, який зараз читає Main.
+    }
+
+    /* В. Слухаємо далі */
+    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+  }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    // Скидання при апаратних помилках
+    __HAL_UART_CLEAR_OREFLAG(huart);
+    rx_idx = 0;
+    packet_received_flag = 0; // Примусове розблокування
+    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+  }
+}
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
+  /* USER CODE BEGIN Error_Handler_Debug */
   __disable_irq();
-  while (1) {}
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
 }
