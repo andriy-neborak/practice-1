@@ -1,0 +1,3 @@
+../Core/Src/freertos.c:70:6:InitGameField	13
+../Core/Src/freertos.c:118:6:MX_FREERTOS_Init	1
+../Core/Src/freertos.c:160:6:StartDefaultTask	2
