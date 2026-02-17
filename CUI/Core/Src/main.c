@@ -71,6 +71,7 @@ void SystemClock_Config(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -136,10 +137,6 @@ int main(void)
 
             // Тут твоя логіка гри.
             // Для прикладу: Просто підтверджуємо отримання (ACK)
-
-            // Змінюємо дані для відповіді (наприклад, Status = 0xFF OK)
-            rx_buffer[3] = 0x00;
-            rx_buffer[4] = 0xFF;
 
             // ПЕРЕРАХОВУЄМО CRC для відповіді!
             uint16_t resp_sum = rx_buffer[0] + rx_buffer[1] + rx_buffer[2] +
@@ -284,3 +281,19 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
+#ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
