@@ -1,0 +1,11 @@
+../Core/Src/game.c:22:6:Game_Init	8	static
+../Core/Src/game.c:37:6:Game_Swap	40	static
+../Core/Src/game.c:86:13:Game_RunGravityLoop	16	static
+../Core/Src/game.c:101:6:Game_FillEmptyCells	16	static
+../Core/Src/game.c:115:13:Game_ApplyGravity	24	static
+../Core/Src/game.c:131:12:Game_CheckAndRemoveMatches	120	static
+../Core/Src/game.c:177:17:GetScoreForCount	16	static
+../Core/Src/game.c:186:16:GetValidRandomColor	16	static
+../Core/Src/game.c:190:13:Game_UpdateDebugView	16	static
+../Core/Src/game.c:199:6:Game_ProcessStep	16	static
+../Core/Src/game.c:205:6:Game_SendBoardUART	88	static
