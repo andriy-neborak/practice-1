@@ -107,32 +107,50 @@
 	          if (calc_crc == current_packet.crc)
 	          {
 	              // === ВАЛІДНИЙ ПАКЕТ ===
-	              // Очищаємо буфер перед відповіддю, залишаючи лише CMD
-	              uint8_t tx_buf[PACKET_SIZE] = {current_packet.cmd, 0, 0, 0, 0, 0};
+	              // Готуємо відповідь у тому ж буфері (очищаємо дані параметрів)
+	              rx_buffer[1] = 0;
+	              rx_buffer[2] = 0;
+	              rx_buffer[3] = 0;
+	              rx_buffer[4] = 0;
 
 	              switch (current_packet.cmd)
 	              {
 	                  case 0x10: // NEW GAME
 	                      Game_Init();
-	                      tx_buf[4] = 0xAA; // Статус OK
+	                      rx_buffer[4] = 0xAA; // Записуємо статус прямо в буфер відправки
 	                      break;
 
 	                  case 0x11: // SWAP
 	                      if (Game_Swap(current_packet.addr_h, current_packet.addr_l,
 	                                    current_packet.data_h, current_packet.data_l)) {
-	                          tx_buf[4] = 0xAA;
+	                          rx_buffer[4] = 0xAA;
 	                      } else {
-	                          tx_buf[4] = 0xEE; // Невдалий хід
+	                          rx_buffer[4] = 0xEE;
 	                      }
 	                      break;
 
+	                  case 0x14: // GET CELL
+	                  {
+	                      uint8_t r = current_packet.addr_h;
+	                      uint8_t c = current_packet.addr_l;
+
+	                      if (r < BOARD_ROWS && c < BOARD_COLS) {
+	                          rx_buffer[3] = board[r][c]; // Колір кубика
+	                          rx_buffer[4] = 0xAA;        // Статус успіху
+	                      } else {
+	                          rx_buffer[4] = 0xEE;
+	                      }
+	                  }
+	                  break;
+
 	                  default:
-	                      tx_buf[4] = 0xFF; // Невідома команда
+	                      rx_buffer[4] = 0xFF;
 	                      break;
 	              }
 
-	              tx_buf[5] = CRC8_Calc(tx_buf, 5);
-	              HAL_UART_Transmit(&huart1, tx_buf, PACKET_SIZE, 100);
+	              // Рахуємо CRC для всього пакета, який ми підготували
+	              rx_buffer[5] = CRC8_Calc(rx_buffer, 5);
+	              HAL_UART_Transmit(&huart1, rx_buffer, PACKET_SIZE, 100);
 	          }
 	          else
 	          {
