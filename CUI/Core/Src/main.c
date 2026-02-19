@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
+  * @brief          : Main program body (Protocol Handler with Diff Update)
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -13,80 +13,108 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h> // Для роботи з пам'яттю
+#include <string.h>
+#include "game.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-// Структура пакету (6 байт) для зручності доступу
 typedef struct {
-    uint8_t cmd;
-    uint8_t addr_h;
-    uint8_t addr_l;
-    uint8_t data_h;
-    uint8_t data_l;
-    uint8_t crc;
+	uint8_t cmd;
+	uint8_t addr_h;
+	uint8_t addr_l;
+	uint8_t data_h;
+	uint8_t data_l;
+	uint8_t crc;
 } Packet_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define PACKET_SIZE 6
-#define TIMEOUT_MS  10  // Жорсткий таймаут між байтами
+#define TIMEOUT_MS  10
+
+// Коди команд для відповіді
+#define CMD_UPDATE_CELL 0x16
 /* USER CODE END PD */
 
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
 /* Private variables ---------------------------------------------------------*/
-
 /* USER CODE BEGIN PV */
-/* --- ЗМІННІ ДЛЯ ПРОТОКОЛУ --- */
-uint8_t rx_byte;                // Тимчасовий байт (приймач)
-uint8_t rx_buffer[PACKET_SIZE]; // Буфер для збору пакету
-uint8_t rx_idx = 0;             // Поточний індекс
+uint8_t rx_byte;
+uint8_t rx_buffer[PACKET_SIZE];
+uint8_t rx_idx = 0;
+volatile uint8_t packet_received_flag = 0;
+uint32_t last_byte_tick = 0;
+Packet_t current_packet;
 
-volatile uint8_t packet_received_flag = 0; // Прапор: 1 = є повний пакет
-uint32_t last_byte_tick = 0;    // Час отримання останнього байта
-
-Packet_t current_packet;        // Структура для розбору даних
+// Буфер для збереження старого стану поля (Snapshot)
+uint8_t board_snapshot[BOARD_ROWS][BOARD_COLS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-/* USER CODE BEGIN PFP */
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-/**
- * @brief  Розрахунок CRC-8 з поліномом 0x07
- * @param  data: вказівник на масив даних
- * @param  len: довжина даних для розрахунку (зазвичай 5 байт)
- * @retval calculated_crc
- */
+// Функція розрахунку CRC (твоя оригінальна)
 uint8_t CRC8_Calc(uint8_t *data, uint8_t len)
 {
-    uint8_t crc = 0x00; // Початкове значення (Init value)
-    uint8_t i, j;
+	uint8_t crc = 0x00;
+	uint8_t i, j;
+	for (i = 0; i < len; i++) {
+		crc ^= data[i];
+		for (j = 0; j < 8; j++) {
+			if (crc & 0x80) {
+				crc = (crc << 1) ^ 0x07;
+			} else {
+				crc <<= 1;
+			}
+		}
+	}
+	return crc;
+}
 
-    for (i = 0; i < len; i++) {
-        crc ^= data[i]; // XOR байта даних з поточним CRC
-        for (j = 0; j < 8; j++) {
-            if (crc & 0x80) { // Якщо старший біт = 1
-                crc = (crc << 1) ^ 0x07; // Зсув вліво і XOR з поліномом 0x07
-            } else {
-                crc <<= 1; // Просто зсув вліво
+// Універсальна функція відправки пакету
+// cmd: команда, r/c: координати, data: колір/дані, status: статус (0xAA/0xEE)
+void Send_Packet(uint8_t cmd, uint8_t r, uint8_t c, uint8_t data, uint8_t status)
+{
+    uint8_t tx_buf[PACKET_SIZE];
+    tx_buf[0] = cmd;
+    tx_buf[1] = r;      // Row / Addr_H
+    tx_buf[2] = c;      // Col / Addr_L
+    tx_buf[3] = data;   // Color / Data_H
+    tx_buf[4] = status; // Status / Data_L
+    tx_buf[5] = CRC8_Calc(tx_buf, 5); // CRC
+
+    HAL_UART_Transmit(&huart1, tx_buf, PACKET_SIZE, 100);
+}
+
+// Функція відправки різниці між старим і новим станом
+void Send_Board_Diff(void)
+{
+    for (uint8_t r = 0; r < BOARD_ROWS; r++) {
+        for (uint8_t c = 0; c < BOARD_COLS; c++) {
+            // Порівнюємо поточне поле зі збереженим знімком
+            if (board[r][c] != board_snapshot[r][c]) {
+                // Якщо клітинка змінилась - відправляємо оновлення
+                Send_Packet(CMD_UPDATE_CELL, r, c, board[r][c], 0xAA);
+
+                // Маленька затримка, щоб приймач встиг обробити потік даних
+                HAL_Delay(2);
             }
         }
     }
-    return crc;
 }
 
+// Функція для примусової відправки всього поля (наприклад, при старті гри)
+void Send_Full_Board(void)
+{
+    for (uint8_t r = 0; r < BOARD_ROWS; r++) {
+        for (uint8_t c = 0; c < BOARD_COLS; c++) {
+            Send_Packet(CMD_UPDATE_CELL, r, c, board[r][c], 0xAA);
+            HAL_Delay(2);
+        }
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -95,112 +123,135 @@ uint8_t CRC8_Calc(uint8_t *data, uint8_t len)
   */
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
+
   /* USER CODE BEGIN 2 */
-
-  /* --- СТАРТ --- */
-  // Очищаємо сміття в регістрі
   __HAL_UART_FLUSH_DRREGISTER(&huart1);
-
-  // Запускаємо прийом першого байта
   HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
 
+  // Ініціалізуємо гру при старті
+  Game_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* --- 1. ПЕРЕВІРКА: ЧИ ПРИЙШОВ ПОВНИЙ ПАКЕТ? --- */
-    if (packet_received_flag == 1)
-    {
-        // Копіюємо дані в структуру для зручності
-        current_packet.cmd    = rx_buffer[0];
-        current_packet.addr_h = rx_buffer[1];
-        current_packet.addr_l = rx_buffer[2];
-        current_packet.data_h = rx_buffer[3];
-        current_packet.data_l = rx_buffer[4];
-        current_packet.crc    = rx_buffer[5];
+      if (packet_received_flag == 1)
+      {
+          // 1. Розбір пакету
+          current_packet.cmd    = rx_buffer[0];
+          current_packet.addr_h = rx_buffer[1];
+          current_packet.addr_l = rx_buffer[2];
+          current_packet.data_h = rx_buffer[3];
+          current_packet.data_l = rx_buffer[4];
+          current_packet.crc    = rx_buffer[5];
 
-        /* --- 2. РАХУЄМО CRC (НОВИЙ МЕТОД) --- */
-        // Передаємо перші 5 байт масиву (cmd, addr_h, addr_l, data_h, data_l)
-        uint8_t calc_crc = CRC8_Calc(rx_buffer, 5);
+          // 2. Перевірка CRC
+          uint8_t calc_crc = CRC8_Calc(rx_buffer, 5);
 
-        /* --- 3. ВАЛІДАЦІЯ --- */
-        if (calc_crc == current_packet.crc)
-        {
-            // === ПАКЕТ ВАЛІДНИЙ ===
+          if (calc_crc == current_packet.crc)
+          {
+              // === ВАЛІДНИЙ ПАКЕТ ===
+              switch (current_packet.cmd)
+              {
+                  case 0x10: // NEW GAME
+                      Game_Init();
+                      Send_Packet(0x10, 0, 0, 0, 0xAA); // Підтвердження старту
+                      Send_Full_Board();                // Відправляємо все нове поле
+                      break;
 
-            // Тут твоя логіка гри.
-            // Для прикладу: Просто підтверджуємо отримання (ACK) - повертаємо ті ж дані
+                  case 0x11: // SWAP
+                  {
+                      // 1. Робимо знімок поля ДО змін (для відправки різниці)
+                      memcpy(board_snapshot, board, sizeof(board));
 
-            // Якщо треба змінити дані (наприклад, статус OK), розкоментуй:
-            // rx_buffer[3] = 0x00;
-            // rx_buffer[4] = 0xFF;
+                      // 2. Пробуємо зробити хід
+                      uint8_t success = Game_Swap(current_packet.addr_h, current_packet.addr_l,
+                                                  current_packet.data_h, current_packet.data_l);
 
-            // ПЕРЕРАХОВУЄМО CRC для відповіді (для перших 5 байтів)
-            rx_buffer[5] = CRC8_Calc(rx_buffer, 5);
+                      if (success) {
+                          // Хід був за правилами, кубики згоріли і впали нові.
 
-            // Відправляємо відповідь (ACK)
-            HAL_UART_Transmit(&huart1, rx_buffer, PACKET_SIZE, 100);
-        }
-        else
-                {
-                    // === ПОМИЛКА CRC ===
-                    // Відправляємо діагностичний пакет:
-                    // [EE] [Порахована_CRC] [Отримана_CRC] [EE] [EE] [EE]
-                    uint8_t err_packet[PACKET_SIZE] = {0xEE, calc_crc, current_packet.crc, 0xEE, 0xEE, 0xEE};
-                    HAL_UART_Transmit(&huart1, err_packet, PACKET_SIZE, 100);
-                }
+                          // 3. ПЕРЕВІРКА НА ГЛУХИЙ КУТ (Deadlock)
+                          if (Game_HasPossibleMoves() == 0) {
+                              // Ходів більше немає! Відправляємо статус 0xDD (Deadlock)
+                              Send_Packet(0x11, 0, 0, 0, 0xDD);
+                          } else {
+                              // Все добре, гра продовжується. Відправляємо 0xAA (Успіх)
+                              Send_Packet(0x11, 0, 0, 0, 0xAA);
+                          }
 
-        /* --- 4. ЗАВЕРШЕННЯ ОБРОБКИ --- */
-        // Скидаємо прапор, дозволяємо приймати нові пакети в ISR
-        packet_received_flag = 0;
-    }
+                          // 4. Відправляємо Фронтенду оновлені клітинки
+                          Send_Board_Diff();
 
-    /* USER CODE END WHILE */
+                      } else {
+                          // Хід неможливий (не сусідні кубики, або немає лінії 3-в-ряд)
+                          Send_Packet(0x11, 0, 0, 0, 0xEE); // Помилка
+                      }
+                  }
+                  break;
 
-    /* USER CODE BEGIN 3 */
+                  case 0x14: // GET CELL (Запит конкретної клітинки)
+                  {
+                      uint8_t r = current_packet.addr_h;
+                      uint8_t c = current_packet.addr_l;
+
+                      if (r < BOARD_ROWS && c < BOARD_COLS) {
+                          Send_Packet(0x14, r, c, board[r][c], 0xAA);
+                      } else {
+                          Send_Packet(0x14, r, c, 0, 0xEE);
+                      }
+                  }
+                  break;
+
+                  case 0x15: // === GET SCORE ===
+                  {
+                      uint8_t tx_score[PACKET_SIZE];
+                      tx_score[0] = 0x15; // Команда відповіді
+
+                      // Рахунок - це uint32_t (4 байти). Розбиваємо його на байти для передачі
+                      tx_score[1] = (uint8_t)((score >> 24) & 0xFF); // Найстарший байт
+                      tx_score[2] = (uint8_t)((score >> 16) & 0xFF);
+                      tx_score[3] = (uint8_t)((score >> 8)  & 0xFF);
+                      tx_score[4] = (uint8_t)(score & 0xFF);         // Наймолодший байт
+
+                      // Рахуємо CRC для цього пакета
+                      tx_score[5] = CRC8_Calc(tx_score, 5);
+
+                      // ВІДПРАВЛЯЄМО ПАКЕТ
+                      HAL_UART_Transmit(&huart1, tx_score, PACKET_SIZE, 100);
+                  }
+                  break;
+
+                  default: // Невідома команда
+                      Send_Packet(current_packet.cmd, 0, 0, 0, 0xFF);
+                      break;
+              }
+          }
+          else
+          {
+              // === ПОМИЛКА CRC ===
+              // Відправляємо діагностичний пакет
+              Send_Packet(0xEE, calc_crc, current_packet.crc, 0xEE, 0xEE);
+          }
+
+          // Скидання прапора для прийому наступного пакету
+          packet_received_flag = 0;
+          rx_idx = 0; // Скидаємо індекс буфера на початок
+      }
   }
   /* USER CODE END 3 */
 }
 
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+/* ... (SystemClock_Config залишається без змін) ... */
+void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -208,115 +259,47 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
   RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1;
+  HAL_RCC_OscConfig(&RCC_OscInitStruct);
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK|RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1);
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1;
   PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK1;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-  {
-    Error_Handler();
+  HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit);
+}
+
+// Callback для прийому по перериванню
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+  if (huart->Instance == USART1) {
+	uint32_t current_tick = HAL_GetTick();
+	// Тайм-аут: якщо байт прийшов надто пізно, скидаємо пакет
+	if (rx_idx > 0 && (current_tick - last_byte_tick > TIMEOUT_MS)) rx_idx = 0;
+	last_byte_tick = current_tick;
+
+	if (packet_received_flag == 0) {
+		rx_buffer[rx_idx++] = rx_byte;
+		if (rx_idx >= PACKET_SIZE) {
+			packet_received_flag = 1;
+			rx_idx = 0;
+		}
+	}
+	// Знову вмикаємо прийом переривання
+	HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
   }
 }
 
-/* USER CODE BEGIN 4 */
-/* --- ОБРОБНИКИ ПЕРЕРИВАНЬ UART --- */
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    uint32_t current_tick = HAL_GetTick();
-
-    /* А. ПЕРЕВІРКА ТАЙМАУТУ (10 мс) */
-    // Якщо прийом йде (індекс > 0), але пауза затягнулася (> 10мс)
-    if (rx_idx > 0 && (current_tick - last_byte_tick > TIMEOUT_MS))
-    {
-        rx_idx = 0; // Скидаємо "протухлий" пакет
-    }
-
-    // Оновлюємо час останнього байта
-    last_byte_tick = current_tick;
-
-    /* Б. БУФЕРИЗАЦІЯ */
-    // Пишемо в буфер ТІЛЬКИ якщо Main Loop вже обробив попередній пакет (flag == 0)
-    if (packet_received_flag == 0)
-    {
-        rx_buffer[rx_idx++] = rx_byte; // Записуємо байт
-
-        // Якщо зібрали 6 байт
-        if (rx_idx >= PACKET_SIZE)
-        {
-            packet_received_flag = 1; // Сигнал для Main Loop: "Є дані!"
-            rx_idx = 0;               // Скидаємо індекс для наступного разу
-        }
-    }
-    else
-    {
-        // Якщо flag == 1, значить Main ще думає.
-        // Ми ігноруємо вхідні байти (або можна повертати помилку),
-        // щоб не зіпсувати буфер, який зараз читає Main.
-    }
-
-    /* В. Слухаємо далі */
-    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+  if (huart->Instance == USART1) {
+	__HAL_UART_CLEAR_OREFLAG(huart);
+	rx_idx = 0;
+	packet_received_flag = 0;
+	HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
   }
 }
 
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    // Скидання при апаратних помилках
-    __HAL_UART_CLEAR_OREFLAG(huart);
-    rx_idx = 0;
-    packet_received_flag = 0; // Примусове розблокування
-    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
-  }
-}
-/* USER CODE END 4 */
-
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
+void Error_Handler(void) {
   __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
+  while (1) {}
 }
-
-#ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  * where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
-}
-#endif /* USE_FULL_ASSERT */
