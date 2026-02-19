@@ -1,8 +1,8 @@
-../Core/Src/game.c:19:6:Game_Init	1
-../Core/Src/game.c:25:9:Game_Swap	7
-../Core/Src/game.c:56:13:Game_RunGravityLoop	2
-../Core/Src/game.c:64:13:Game_FillEmptyCells	4
-../Core/Src/game.c:76:13:Game_ApplyGravityInternal	5
-../Core/Src/game.c:89:12:Game_CheckAndRemoveMatches	17
-../Core/Src/game.c:133:17:GetScoreForCount	1
-../Core/Src/game.c:137:16:GetValidRandomColor	1
+../Core/Src/game.c:24:6:Game_Init	1
+../Core/Src/game.c:33:9:Game_Swap	7
+../Core/Src/game.c:71:13:Game_RunGravityLoop	2
+../Core/Src/game.c:80:13:Game_FillEmptyCells	4
+../Core/Src/game.c:96:13:Game_ApplyGravityInternal	5
+../Core/Src/game.c:118:12:Game_CheckAndRemoveMatches	17
+../Core/Src/game.c:178:17:GetScoreForCount	1
+../Core/Src/game.c:184:16:GetValidRandomColor	9
