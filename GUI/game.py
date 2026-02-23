@@ -8,7 +8,7 @@ import random
 import math
 
 
-SERIAL_PORT = 'COM16'
+SERIAL_PORT = 'COM9'
 BAUD_RATE = 38400
 
 BOARD_SIZE = 8
