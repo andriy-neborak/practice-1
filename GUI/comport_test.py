@@ -1,26 +1,26 @@
 import pygame
 import pygame.gfxdraw
 import serial
+import serial.tools.list_ports
 import threading
 import time
 from collections import deque
 import random
 import math
 
-
-SERIAL_PORT = 'COM9'
 BAUD_RATE = 38400
 
 BOARD_SIZE = 8
 CELL_SIZE = 60
 
-WIDTH, HEIGHT = 600, 780
+WIDTH, HEIGHT = 600, 820
 OFFSET_X = (WIDTH - BOARD_SIZE * CELL_SIZE) // 2
 OFFSET_Y = 160
 
 BG_COLOR = (18, 22, 40)
 TEXT_COLOR = (245, 245, 255)
 ACCENT = (90, 170, 255)
+PANEL_COLOR = (25, 28, 55)
 
 COLORS = {
     0: (0, 0, 0),
@@ -33,11 +33,14 @@ COLORS = {
 }
 
 
+def get_ports():
+    return [p.device for p in serial.tools.list_ports.comports()]
+
+
 class Particle:
     def __init__(self, x, y, color):
         angle = random.uniform(0, 2 * math.pi)
         speed = random.uniform(2, 6)
-
         self.x = x
         self.y = y
         self.vx = math.cos(angle) * speed
@@ -62,11 +65,9 @@ class AnimCell:
         self.r = r
         self.c = c
         self.color = 0
-
         self.x = OFFSET_X + c * CELL_SIZE + CELL_SIZE // 2
         self.y = OFFSET_Y + r * CELL_SIZE + CELL_SIZE // 2
         self.target_y = self.y
-
         self.scale = 1.0
 
     def sync(self, new_color):
@@ -83,7 +84,6 @@ class AnimCell:
 
     def update(self):
         self.y += (self.target_y - self.y) * 0.18
-
         if self.scale < 1.0:
             self.scale += 0.1
             if self.scale > 1.0:
@@ -95,28 +95,11 @@ class AnimCell:
 
         base = COLORS[self.color]
         radius = int((CELL_SIZE // 2 - 8) * self.scale)
-
         cx = int(self.x)
         cy = int(self.y)
 
-        shadow_surface = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
-        pygame.draw.circle(shadow_surface,
-                           (0, 0, 0, 70),
-                           (CELL_SIZE // 2, CELL_SIZE // 2),
-                           radius)
-        surface.blit(shadow_surface,
-                     (cx - CELL_SIZE // 2 + 3,
-                      cy - CELL_SIZE // 2 + 5))
-
         pygame.gfxdraw.filled_circle(surface, cx, cy, radius, base)
         pygame.gfxdraw.aacircle(surface, cx, cy, radius, base)
-
-        outline = (
-            int(base[0] * 0.4),
-            int(base[1] * 0.4),
-            int(base[2] * 0.4)
-        )
-        pygame.gfxdraw.aacircle(surface, cx, cy, radius, outline)
 
 
 class Match3Game:
@@ -129,13 +112,12 @@ class Match3Game:
         self.clock = pygame.time.Clock()
 
         self.font_big = pygame.font.SysFont("Segoe UI", 36, bold=True)
-        self.font_small = pygame.font.SysFont("Segoe UI", 20)
+        self.font_small = pygame.font.SysFont("Segoe UI", 18)
 
         self.board = [[AnimCell(r, c) for c in range(BOARD_SIZE)]
                       for r in range(BOARD_SIZE)]
 
         self.particles = []
-
         self.score = 0
         self.selected = None
         self.busy = False
@@ -144,15 +126,20 @@ class Match3Game:
         self.flash_alpha = 0
         self.flash_decay = 14
 
+        # UART
+        self.available_ports = get_ports()
+        self.selected_port_index = 0
+        self.connected = False
+        self.ser = None
         self.queue = deque()
         self.lock = threading.Lock()
+        self.last_rx_time = 0
 
-        try:
-            self.ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
-            self.start_reader()
-            self.new_game()
-        except:
-            self.running = False
+        self.reader_thread = threading.Thread(
+            target=self.reader_loop,
+            daemon=True
+        )
+        self.reader_thread.start()
 
         pygame.time.set_timer(pygame.USEREVENT + 1, 1000)
         pygame.time.set_timer(pygame.USEREVENT + 2, 5000)
@@ -168,28 +155,66 @@ class Match3Game:
         return crc
 
     def send(self, cmd, b1=0, b2=0, b3=0, b4=0):
-        p = bytearray([cmd, b1, b2, b3, b4])
-        p.append(self.crc8(p))
-        if self.ser.is_open:
+        if not self.connected:
+            return
+        try:
+            p = bytearray([cmd, b1, b2, b3, b4])
+            p.append(self.crc8(p))
             self.ser.write(p)
+        except:
+            self.disconnect()
 
-    def start_reader(self):
-        def loop():
-            while self.running:
-                if self.ser.in_waiting >= 6:
+    def reader_loop(self):
+        while self.running:
+            if self.connected and self.ser:
+                try:
                     raw = self.ser.read(6)
                     if len(raw) == 6 and self.crc8(raw[:5]) == raw[5]:
                         with self.lock:
                             self.queue.append(raw)
-                time.sleep(0.002)
+                        self.last_rx_time = time.time()
+                except:
+                    self.disconnect()
+            else:
+                time.sleep(0.05)
 
-        threading.Thread(target=loop, daemon=True).start()
+    def connect(self):
+        if self.connected or not self.available_ports:
+            return
+        try:
+            port = self.available_ports[self.selected_port_index]
+            self.ser = serial.Serial(port, BAUD_RATE, timeout=0.1)
+            self.connected = True
+            self.last_rx_time = time.time()
+
+            for r in range(BOARD_SIZE):
+                for c in range(BOARD_SIZE):
+                    self.board[r][c].color = 0
+
+            self.new_game()
+        except:
+            self.connected = False
+
+    def disconnect(self):
+        try:
+            if self.ser:
+                self.ser.close()
+        except:
+            pass
+        self.connected = False
+        self.busy = False
 
 
     def new_game(self):
         self.score = 0
         self.busy = False
         self.selected = None
+
+        # форсуємо всі клітини на 0
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                self.board[r][c].color = 0
+
         self.send(0x10)
 
     def create_explosion(self, x, y, color):
@@ -205,16 +230,15 @@ class Match3Game:
 
                 if cmd == 0x16:
                     r, c, color = p[1], p[2], p[3]
-
                     if 0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE:
                         cell = self.board[r][c]
                         old_color = cell.sync(color)
-
-                        if color == 0 and old_color and old_color != 0:
-                            self.create_explosion(cell.x,
-                                                  cell.y,
-                                                  COLORS[old_color])
-
+                        if color == 0 and old_color:
+                            self.create_explosion(
+                                cell.x,
+                                cell.y,
+                                COLORS[old_color]
+                            )
                         cell.update_position(r)
 
                 elif cmd == 0x11:
@@ -228,25 +252,51 @@ class Match3Game:
                         p[4]
                     )
 
+        if self.connected and time.time() - self.last_rx_time > 1.5:
+            self.disconnect()
+
 
     def click(self, pos):
-        if self.busy:
-            return
 
-        c = (pos[0] - OFFSET_X) // CELL_SIZE
-        r = (pos[1] - OFFSET_Y) // CELL_SIZE
+        panel_y = HEIGHT - 70
 
-        if not (0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE):
-            return
+        # left arrow
+        if 200 <= pos[0] <= 240 and panel_y + 20 <= pos[1] <= panel_y + 55:
+            if self.available_ports:
+                self.selected_port_index = \
+                    (self.selected_port_index - 1) % len(self.available_ports)
 
-        if self.selected is None:
-            self.selected = (r, c)
+        # right arrow
+        elif 360 <= pos[0] <= 400 and panel_y + 20 <= pos[1] <= panel_y + 55:
+            if self.available_ports:
+                self.selected_port_index = \
+                    (self.selected_port_index + 1) % len(self.available_ports)
+
+        # connect button
+        elif 430 <= pos[0] <= 580 and panel_y + 15 <= pos[1] <= panel_y + 55:
+            if self.connected:
+                self.disconnect()
+            else:
+                self.connect()
+
         else:
-            r1, c1 = self.selected
-            if abs(r1 - r) + abs(c1 - c) == 1:
-                self.busy = True
-                self.send(0x11, r1, c1, r, c)
-            self.selected = None
+            if self.busy or not self.connected:
+                return
+
+            c = (pos[0] - OFFSET_X) // CELL_SIZE
+            r = (pos[1] - OFFSET_Y) // CELL_SIZE
+
+            if not (0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE):
+                return
+
+            if self.selected is None:
+                self.selected = (r, c)
+            else:
+                r1, c1 = self.selected
+                if abs(r1 - r) + abs(c1 - c) == 1:
+                    self.busy = True
+                    self.send(0x11, r1, c1, r, c)
+                self.selected = None
 
 
     def draw(self):
@@ -264,7 +314,6 @@ class Match3Game:
 
         for r in range(BOARD_SIZE):
             for c in range(BOARD_SIZE):
-
                 x = OFFSET_X + c * CELL_SIZE
                 y = OFFSET_Y + r * CELL_SIZE
 
@@ -299,6 +348,42 @@ class Match3Game:
             if self.flash_alpha < 0:
                 self.flash_alpha = 0
 
+        panel_y = HEIGHT - 70
+        pygame.draw.rect(self.screen, PANEL_COLOR,
+                         (0, panel_y, WIDTH, 70))
+
+        port_name = "NO PORT"
+        if self.available_ports:
+            port_name = self.available_ports[self.selected_port_index]
+
+        port_txt = self.font_small.render(
+            f"PORT: {port_name}",
+            True,
+            TEXT_COLOR
+        )
+        self.screen.blit(port_txt, (250, panel_y + 25))
+
+        pygame.draw.rect(self.screen, ACCENT,
+                         (200, panel_y + 20, 40, 35),
+                         border_radius=6)
+        pygame.draw.rect(self.screen, ACCENT,
+                         (360, panel_y + 20, 40, 35),
+                         border_radius=6)
+
+        self.screen.blit(self.font_small.render("<", True, (0, 0, 0)),
+                         (212, panel_y + 23))
+        self.screen.blit(self.font_small.render(">", True, (0, 0, 0)),
+                         (372, panel_y + 23))
+
+        btn_color = (0, 200, 120) if not self.connected else (200, 70, 70)
+        pygame.draw.rect(self.screen, btn_color,
+                         (430, panel_y + 15, 150, 40),
+                         border_radius=8)
+
+        label = "CONNECT" if not self.connected else "DISCONNECT"
+        self.screen.blit(self.font_small.render(label, True, (0, 0, 0)),
+                         (450, panel_y + 25))
+
         pygame.display.flip()
 
 
@@ -309,7 +394,6 @@ class Match3Game:
             self.draw()
 
             for e in pygame.event.get():
-
                 if e.type == pygame.QUIT:
                     self.running = False
 
@@ -328,4 +412,4 @@ class Match3Game:
 
 
 if __name__ == "__main__":
-    Match3Game().run()  
+    Match3Game().run()

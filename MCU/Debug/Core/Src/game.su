@@ -1,0 +1,9 @@
+../Core/Src/game.c:21:6:Game_Init	16	static
+../Core/Src/game.c:31:9:Game_Swap	40	static
+../Core/Src/game.c:55:9:Game_HasPossibleMoves	40	static
+../Core/Src/game.c:82:6:Game_RunGravityLoop	24	static
+../Core/Src/game.c:127:12:Game_GravityStep	24	static
+../Core/Src/game.c:142:12:Game_CheckAndRemoveMatches	112	static
+../Core/Src/game.c:183:17:GetScoreForCount	16	static
+../Core/Src/game.c:190:16:GetValidRandomColor	24	static
+../Core/Src/game.c:202:12:Game_IsMatchPresent	32	static

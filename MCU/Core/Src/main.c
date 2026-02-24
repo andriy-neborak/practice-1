@@ -49,13 +49,17 @@ Packet_t current_packet;
 
 // Буфер для збереження старого стану поля (Snapshot)
 uint8_t board_snapshot[BOARD_ROWS][BOARD_COLS];
+
+// === НАЛАШТУВАННЯ АНІМАЦІЇ ===
+// Затримка між кроками падіння кубиків (у мілісекундах). Змінюй це значення!
+uint32_t anim_speed_ms = 300;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 
 /* USER CODE BEGIN 0 */
-// Функція розрахунку CRC (твоя оригінальна)
+// Функція розрахунку CRC
 uint8_t CRC8_Calc(uint8_t *data, uint8_t len)
 {
 	uint8_t crc = 0x00;
@@ -74,38 +78,43 @@ uint8_t CRC8_Calc(uint8_t *data, uint8_t len)
 }
 
 // Універсальна функція відправки пакету
-// cmd: команда, r/c: координати, data: колір/дані, status: статус (0xAA/0xEE)
 void Send_Packet(uint8_t cmd, uint8_t r, uint8_t c, uint8_t data, uint8_t status)
 {
     uint8_t tx_buf[PACKET_SIZE];
     tx_buf[0] = cmd;
-    tx_buf[1] = r;      // Row / Addr_H
-    tx_buf[2] = c;      // Col / Addr_L
-    tx_buf[3] = data;   // Color / Data_H
-    tx_buf[4] = status; // Status / Data_L
-    tx_buf[5] = CRC8_Calc(tx_buf, 5); // CRC
+    tx_buf[1] = r;
+    tx_buf[2] = c;
+    tx_buf[3] = data;
+    tx_buf[4] = status;
+    tx_buf[5] = CRC8_Calc(tx_buf, 5);
 
     HAL_UART_Transmit(&huart1, tx_buf, PACKET_SIZE, 100);
 }
 
-// Функція відправки різниці між старим і новим станом
+// Відправка різниці (оновлення екрану)
 void Send_Board_Diff(void)
 {
     for (uint8_t r = 0; r < BOARD_ROWS; r++) {
         for (uint8_t c = 0; c < BOARD_COLS; c++) {
-            // Порівнюємо поточне поле зі збереженим знімком
             if (board[r][c] != board_snapshot[r][c]) {
-                // Якщо клітинка змінилась - відправляємо оновлення
                 Send_Packet(CMD_UPDATE_CELL, r, c, board[r][c], 0xAA);
-
-                // Маленька затримка, щоб приймач встиг обробити потік даних
                 HAL_Delay(2);
             }
         }
     }
 }
 
-// Функція для примусової відправки всього поля (наприклад, при старті гри)
+// Викликається з game.c для відмальовки кожного кроку анімації
+void UI_Update_Step(void)
+{
+    Send_Board_Diff(); // Відправляємо зміни
+    memcpy(board_snapshot, board, sizeof(board_snapshot)); // Оновлюємо знімок для наступного кадру
+
+    if (anim_speed_ms > 0) {
+        HAL_Delay(anim_speed_ms); // Чекаємо, щоб око встигло побачити кадр
+    }
+}
+
 void Send_Full_Board(void)
 {
     for (uint8_t r = 0; r < BOARD_ROWS; r++) {
@@ -132,7 +141,6 @@ int main(void)
   __HAL_UART_FLUSH_DRREGISTER(&huart1);
   HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
 
-  // Ініціалізуємо гру при старті
   Game_Init();
   /* USER CODE END 2 */
 
@@ -142,7 +150,6 @@ int main(void)
   {
       if (packet_received_flag == 1)
       {
-          // 1. Розбір пакету
           current_packet.cmd    = rx_buffer[0];
           current_packet.addr_h = rx_buffer[1];
           current_packet.addr_l = rx_buffer[2];
@@ -150,52 +157,47 @@ int main(void)
           current_packet.data_l = rx_buffer[4];
           current_packet.crc    = rx_buffer[5];
 
-          // 2. Перевірка CRC
           uint8_t calc_crc = CRC8_Calc(rx_buffer, 5);
 
           if (calc_crc == current_packet.crc)
           {
-              // === ВАЛІДНИЙ ПАКЕТ ===
               switch (current_packet.cmd)
               {
                   case 0x10: // NEW GAME
                       Game_Init();
-                      Send_Packet(0x10, 0, 0, 0, 0xAA); // Підтвердження старту
-                      Send_Full_Board();                // Відправляємо все нове поле
+                      Send_Packet(0x10, 0, 0, 0, 0xAA);
+                      Send_Full_Board();
                       break;
 
                   case 0x11: // SWAP
                   {
-                      // 1. Робимо знімок поля ДО змін (для відправки різниці)
-                      memcpy(board_snapshot, board, sizeof(board));
+                      memcpy(board_snapshot, board, sizeof(board_snapshot));
 
-                      // 2. Пробуємо зробити хід
+                      // Game_Swap тепер тільки спалює кубики, але НЕ запускає падіння миттєво
                       uint8_t success = Game_Swap(current_packet.addr_h, current_packet.addr_l,
                                                   current_packet.data_h, current_packet.data_l);
 
                       if (success) {
-                          // Хід був за правилами, кубики згоріли і впали нові.
+                          // Відразу підтверджуємо, що хід валідний, щоб UI розблокувався
+                          Send_Packet(0x11, 0, 0, 0, 0xAA);
 
-                          // 3. ПЕРЕВІРКА НА ГЛУХИЙ КУТ (Deadlock)
+                          // 1. Показуємо зникнення згорілих кубиків (вони стали 0)
+                          UI_Update_Step();
+
+                          // 2. Запускаємо покрокову анімацію падіння
+                          Game_RunGravityLoop();
+
+                          // 3. ПЕРЕВІРКА НА ГЛУХИЙ КУТ після того, як все впало
                           if (Game_HasPossibleMoves() == 0) {
-                              // Ходів більше немає! Відправляємо статус 0xDD (Deadlock)
                               Send_Packet(0x11, 0, 0, 0, 0xDD);
-                          } else {
-                              // Все добре, гра продовжується. Відправляємо 0xAA (Успіх)
-                              Send_Packet(0x11, 0, 0, 0, 0xAA);
                           }
-
-                          // 4. Відправляємо Фронтенду оновлені клітинки
-                          Send_Board_Diff();
-
                       } else {
-                          // Хід неможливий (не сусідні кубики, або немає лінії 3-в-ряд)
                           Send_Packet(0x11, 0, 0, 0, 0xEE); // Помилка
                       }
                   }
                   break;
 
-                  case 0x14: // GET CELL (Запит конкретної клітинки)
+                  case 0x14: // GET CELL
                   {
                       uint8_t r = current_packet.addr_h;
                       uint8_t c = current_packet.addr_l;
@@ -208,21 +210,16 @@ int main(void)
                   }
                   break;
 
-                  case 0x15: // === GET SCORE ===
+                  case 0x15: // GET SCORE
                   {
                       uint8_t tx_score[PACKET_SIZE];
-                      tx_score[0] = 0x15; // Команда відповіді
-
-                      // Рахунок - це uint32_t (4 байти). Розбиваємо його на байти для передачі
-                      tx_score[1] = (uint8_t)((score >> 24) & 0xFF); // Найстарший байт
+                      tx_score[0] = 0x15;
+                      tx_score[1] = (uint8_t)((score >> 24) & 0xFF);
                       tx_score[2] = (uint8_t)((score >> 16) & 0xFF);
                       tx_score[3] = (uint8_t)((score >> 8)  & 0xFF);
-                      tx_score[4] = (uint8_t)(score & 0xFF);         // Наймолодший байт
-
-                      // Рахуємо CRC для цього пакета
+                      tx_score[4] = (uint8_t)(score & 0xFF);
                       tx_score[5] = CRC8_Calc(tx_score, 5);
 
-                      // ВІДПРАВЛЯЄМО ПАКЕТ
                       HAL_UART_Transmit(&huart1, tx_score, PACKET_SIZE, 100);
                   }
                   break;
@@ -234,20 +231,16 @@ int main(void)
           }
           else
           {
-              // === ПОМИЛКА CRC ===
-              // Відправляємо діагностичний пакет
               Send_Packet(0xEE, calc_crc, current_packet.crc, 0xEE, 0xEE);
           }
 
-          // Скидання прапора для прийому наступного пакету
           packet_received_flag = 0;
-          rx_idx = 0; // Скидаємо індекс буфера на початок
+          rx_idx = 0;
       }
   }
   /* USER CODE END 3 */
 }
 
-/* ... (SystemClock_Config залишається без змін) ... */
 void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
@@ -270,11 +263,9 @@ void SystemClock_Config(void) {
   HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit);
 }
 
-// Callback для прийому по перериванню
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
 	uint32_t current_tick = HAL_GetTick();
-	// Тайм-аут: якщо байт прийшов надто пізно, скидаємо пакет
 	if (rx_idx > 0 && (current_tick - last_byte_tick > TIMEOUT_MS)) rx_idx = 0;
 	last_byte_tick = current_tick;
 
@@ -285,7 +276,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			rx_idx = 0;
 		}
 	}
-	// Знову вмикаємо прийом переривання
 	HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
   }
 }

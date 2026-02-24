@@ -11,6 +11,7 @@ extern uint32_t score;
 
 void Game_Init(void);
 uint8_t Game_Swap(uint8_t r1, uint8_t c1, uint8_t r2, uint8_t c2);
-uint8_t Game_HasPossibleMoves(void); // <-- Ось цей рядок додано!
+uint8_t Game_HasPossibleMoves(void);
+void Game_RunGravityLoop(void); // <-- Нова функція для обробки гравітації
 
 #endif /* INC_GAME_H_ */
