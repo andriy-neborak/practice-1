@@ -15,6 +15,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include "game.h"
+#include "save.h" // <--- ДОДАНО: ОБОВ'ЯЗКОВЕ ПІДКЛЮЧЕННЯ ФАЙЛУ ЗБЕРЕЖЕННЯ
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +47,7 @@ uint8_t rx_idx = 0;
 volatile uint8_t packet_received_flag = 0;
 uint32_t last_byte_tick = 0;
 Packet_t current_packet;
+extern char current_player_name[16]; // Змінна з save.c
 
 // Буфер для збереження старого стану поля (Snapshot)
 uint8_t board_snapshot[BOARD_ROWS][BOARD_COLS];
@@ -221,6 +223,55 @@ int main(void)
                       tx_score[5] = CRC8_Calc(tx_score, 5);
 
                       HAL_UART_Transmit(&huart1, tx_score, PACKET_SIZE, 100);
+                  }
+                  break;
+
+                  case 0x20: // ПРИЙОМ ІМЕНІ ВІД PYTHON ПРИ СТАРТІ (по 3 символи)
+                  {
+                      uint8_t chunk = current_packet.addr_h;
+                      if (chunk < 6) {
+                          int base = chunk * 3;
+                          if (base < 16) current_player_name[base] = current_packet.addr_l;
+                          if (base + 1 < 16) current_player_name[base + 1] = current_packet.data_h;
+                          if (base + 2 < 16) current_player_name[base + 2] = current_packet.data_l;
+                      }
+                      if (chunk == 5) current_player_name[15] = '\0'; // Гарантуємо кінець рядка
+                      Send_Packet(0x20, chunk, 0, 0, 0xAA);
+                  }
+                  break;
+
+                  case 0x30: // ЗБЕРЕГТИ ГРУ (Save)
+                  {
+                      uint8_t slot = current_packet.addr_h; // Python пришле 0, 1 або 2
+                      Save_Game(slot);
+                      Send_Packet(0x30, slot, 0, 0, 0xAA);
+                  }
+                  break;
+
+                  case 0x31: // ВІДНОВИТИ ГРУ (Restore / Load)
+                  {
+                      uint8_t slot = current_packet.addr_h; // Python пришле 0, 1 або 2
+                      if (Load_Game(slot) == 1) {
+                          Send_Packet(0x31, slot, 0, 0, 0xAA);
+                          HAL_Delay(10);
+
+                          for (uint8_t i = 0; i < 6; i++) {
+                              Send_Packet(0x32, i,
+                                          current_player_name[i*3],
+                                          current_player_name[i*3+1],
+                                          current_player_name[i*3+2]);
+                              HAL_Delay(5);
+                          }
+
+                          uint8_t tx_sc[PACKET_SIZE] = {0x15, (uint8_t)((score>>24)&0xFF), (uint8_t)((score>>16)&0xFF), (uint8_t)((score>>8)&0xFF), (uint8_t)(score&0xFF), 0};
+                          tx_sc[5] = CRC8_Calc(tx_sc, 5);
+                          HAL_UART_Transmit(&huart1, tx_sc, PACKET_SIZE, 100);
+                          HAL_Delay(10);
+
+                          Send_Full_Board();
+                      } else {
+                          Send_Packet(0x31, slot, 0, 0, 0xEE); // Помилка: слот порожній
+                      }
                   }
                   break;
 
