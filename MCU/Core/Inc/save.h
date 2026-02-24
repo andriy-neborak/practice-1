@@ -2,22 +2,23 @@
 #define INC_SAVE_H_
 
 #include <stdint.h>
-#include "game.h" // Підключаємо, щоб знати розміри поля BOARD_ROWS і BOARD_COLS
+#include "game.h"
 
-// --- Константи для Flash-пам'яті ---
 #define FLASH_SAVE_ADDR     0x0800FC00
 #define SAVE_MAGIC_NUMBER   0xABBA1234
+#define MAX_SAVE_SLOTS      3 // <--- ДОДАНО: 3 слоти збереження
 
-// --- Структура нашого збереження ---
 typedef struct {
-    uint32_t magic;               // Маркер
-    uint32_t score;               // Рахунок
-    char     playerName[16];      // Ім'я гравця
-    uint8_t  board[BOARD_ROWS][BOARD_COLS]; // Ігрове поле
+    uint32_t magic;
+    uint32_t score;
+    char     playerName[16];
+    uint8_t  board[BOARD_ROWS][BOARD_COLS];
 } GameSaveData_t;
 
-// --- Прототипи функцій ---
-void Save_Game(void);
-int  Load_Game(void);
+extern char current_player_name[16];
+
+// Тепер функції приймають номер слота (0, 1 або 2)
+void Save_Game(uint8_t slot);
+int  Load_Game(uint8_t slot);
 
 #endif /* INC_SAVE_H_ */
