@@ -1,6 +1,7 @@
 "./Core/Src/game.o"
 "./Core/Src/gpio.o"
 "./Core/Src/main.o"
+"./Core/Src/save.o"
 "./Core/Src/stm32f0xx_hal_msp.o"
 "./Core/Src/stm32f0xx_it.o"
 "./Core/Src/syscalls.o"
