@@ -216,22 +216,37 @@ int main(void)
                       }
                       break;
 
-                  case 0x40: // ОТРИМАТИ ТАБЛИЦЮ ЛІДЕРІВ
-                  {
-                      Leaderboard_t lb;
-                      Get_Leaderboard(&lb);
-                      for (uint8_t i = 0; i < MAX_LEADERS; i++) {
-                          // Передача імені (перші 3 літери для прикладу)
-                          Send_Packet(0x41, i, lb.leaders[i].playerName[0], lb.leaders[i].playerName[1], lb.leaders[i].playerName[2]);
-                          HAL_Delay(5);
-                          // Передача балів
-                          uint8_t s_h = (uint8_t)((lb.leaders[i].score >> 8) & 0xFF);
-                          uint8_t s_l = (uint8_t)(lb.leaders[i].score & 0xFF);
-                          Send_Packet(0x42, i, 0, s_h, s_l);
-                          HAL_Delay(5);
-                      }
-                  }
-                  break;
+                 case 0x40: // ОТРИМАТИ ТАБЛИЦЮ ЛІДЕРІВ
+{
+    Leaderboard_t lb;
+    Get_Leaderboard(&lb);
+
+    for (uint8_t i = 0; i < MAX_LEADERS; i++) {
+        // 1. Передача імені (розбиваємо 10 літер на декілька пакетів)
+        // Пакет 1: символи 0, 1, 2
+        Send_Packet(0x41, i, lb.leaders[i].playerName[0], lb.leaders[i].playerName[1], lb.leaders[i].playerName[2]);
+        HAL_Delay(5);
+
+        // Пакет 2: символи 3, 4, 5
+        Send_Packet(0x43, i, lb.leaders[i].playerName[3], lb.leaders[i].playerName[4], lb.leaders[i].playerName[5]);
+        HAL_Delay(5);
+
+        // Пакет 3: символи 6, 7, 8
+        Send_Packet(0x44, i, lb.leaders[i].playerName[6], lb.leaders[i].playerName[7], lb.leaders[i].playerName[8]);
+        HAL_Delay(5);
+
+        // Пакет 4: символ 9 (остання літера)
+        Send_Packet(0x45, i, lb.leaders[i].playerName[9], 0x00, 0x00);
+        HAL_Delay(5);
+
+        // 2. Передача балів (score)
+        uint8_t s_h = (uint8_t)((lb.leaders[i].score >> 8) & 0xFF);
+        uint8_t s_l = (uint8_t)(lb.leaders[i].score & 0xFF);
+        Send_Packet(0x42, i, 0, s_h, s_l);
+        HAL_Delay(5);
+    }
+}
+break;
 
                   default:
                       Send_Packet(current_packet.cmd, 0, 0, 0, 0xFF);
