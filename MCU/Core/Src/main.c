@@ -215,6 +215,49 @@ int main(void)
                           Send_Packet(0x31, current_packet.addr_h, 0, 0, 0xEE);
                       }
                       break;
+               case 0x32: // ЗАПИТАТИ НІКНЕЙМ ЗІ СЛОТА (12 літер)
+{
+    uint8_t slot = current_packet.addr_h; // Отримуємо номер слота (0, 1, 2)
+    
+    if (slot < MAX_SAVE_SLOTS) {
+        GameSaveData_t *flash_ptr = (GameSaveData_t *)FLASH_SAVE_ADDR;
+        
+        // Перевіряємо валідність збереження
+        if (flash_ptr[slot].magic == SAVE_MAGIC_NUMBER) {
+            
+            // Пакет 1: символи 0, 1, 2 (Команда 0x33)
+            Send_Packet(0x33, slot, flash_ptr[slot].playerName[0], 
+                                    flash_ptr[slot].playerName[1], 
+                                    flash_ptr[slot].playerName[2]);
+            HAL_Delay(5);
+
+            // Пакет 2: символи 3, 4, 5 (Команда 0x34)
+            Send_Packet(0x34, slot, flash_ptr[slot].playerName[3], 
+                                    flash_ptr[slot].playerName[4], 
+                                    flash_ptr[slot].playerName[5]);
+            HAL_Delay(5);
+
+            // Пакет 3: символи 6, 7, 8 (Команда 0x35)
+            Send_Packet(0x35, slot, flash_ptr[slot].playerName[6], 
+                                    flash_ptr[slot].playerName[7], 
+                                    flash_ptr[slot].playerName[8]);
+            HAL_Delay(5);
+
+            // Пакет 4: символи 9, 10, 11 (Команда 0x36)
+            Send_Packet(0x36, slot, flash_ptr[slot].playerName[9], 
+                                    flash_ptr[slot].playerName[10], 
+                                    flash_ptr[slot].playerName[11]);
+            HAL_Delay(5);
+            
+            // Фінальний статус: Успішно (0xAA)
+            Send_Packet(0x32, slot, 0, 0, 0xAA); 
+        } else {
+            // Статус: Слот порожній (0xEE)
+            Send_Packet(0x32, slot, 0, 0, 0xEE); 
+        }
+    }
+}
+break;
 
                  case 0x40: // ОТРИМАТИ ТАБЛИЦЮ ЛІДЕРІВ
 {
