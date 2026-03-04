@@ -10,7 +10,7 @@ uint32_t score = 0;
 extern void UI_Update_Step(void);
 
 /* --- ПРОТОТИПИ --- */
-static uint8_t GetValidRandomColor(int r, int c);
+static uint8_t GetValidRandomColor(int r, int c); 
 static int Game_GravityStep(void); // Оновлений крок гравітації
 static int Game_CheckAndRemoveMatches(void);
 static uint32_t GetScoreForCount(uint8_t count);
