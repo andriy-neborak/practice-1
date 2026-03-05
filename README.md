@@ -10,7 +10,7 @@
 ### PC Client (Клієнт)
 * **ОС:** Windows 10 / Windows 11 (64-bit).
 * **Середовище:** Visual Studio Code / PyCharm.
-* **Стек:** Python 3.11+ (рекомендовано 3.12), `pygame-ce` latest (графіка), `pyserial` 3.5+ (зв'язок).
+* **Стек:** Python 3.11+ (рекомендовано 3.12), `pygame` latest (графіка), `pyserial` 3.5+ (зв'язок).
 
 ### Hardware Server (Мікроконтролер)
 * **Плата:** STM32F0Discovery (або аналогічна, напр. STM32F103).
@@ -134,4 +134,5 @@ MIT License. Вільне використання з посиланням на 
 <p align="center">
   Розроблено як навчальний проєкт · STM32F051R8 + Python/pygame
 </p>
+
 
